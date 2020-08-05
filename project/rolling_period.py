@@ -1,6 +1,7 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import List, Set
+from typing import Dict, List, Set
 
 
 @dataclass
@@ -27,9 +28,8 @@ class Session(object):
 
 def get_session_rolling_hours_rule_status(
     rolling_period_rule_settings: RollingPeriodRuleSettings,
-    test_session: Session,
     sorted_sessions: List[Session],
-) -> RollingHoursRuleStatus:
+) -> Dict[int, RollingHoursRuleStatus]:
     """
         Naive in that we only consider sessions that *start* within some rolling
         window, to avoid weird edge cases. I believe a similar and performance
@@ -39,13 +39,13 @@ def get_session_rolling_hours_rule_status(
     hours_threshold = rolling_period_rule_settings.hours_threshold
     rolling_period_size = rolling_period_rule_settings.rolling_period_size
 
-    period_start_boundary = test_session.start_datetime - rolling_period_size
-    period_end_boundary = test_session.start_datetime
+    period_start_boundary = sorted_sessions[0].start_datetime
+    period_end_boundary = period_start_boundary + rolling_period_size
 
-    hours_in_period = test_session.duration_hours()
-    max_hours_in_period = hours_in_period
+    hours_in_period = 0
     earliest_session_in_window_i = 0
     sessions_in_window: Set[Session] = set()
+    max_hours_in_period_for_sessions_dict: Dict[int, float] = defaultdict(int)
     for i, session in enumerate(sorted_sessions):
         hours_in_period += session.duration_hours()
         sessions_in_window.add(session)
@@ -56,15 +56,19 @@ def get_session_rolling_hours_rule_status(
                     sorted_sessions[earliest_session_in_window_i:]):
                 if cutoff_session.start_datetime < period_start_boundary:
                     hours_in_period -= cutoff_session.duration_hours()
-                    print(f'removing session with id: {cutoff_session.id}')
                     sessions_in_window.remove(cutoff_session)
                 else:
                     earliest_session_in_window_i = earliest_session_in_window_i + j
-                    print(f'earliest_session_in_window_i: {earliest_session_in_window_i}')
                     period_end_boundary = (
                         cutoff_session.start_datetime + rolling_period_size)
                     break
-        max_hours_in_period = max(hours_in_period, max_hours_in_period)
-    return RollingHoursRuleStatus(
-        is_broken=max_hours_in_period > hours_threshold,
-        max_worked_hours=max_hours_in_period)
+        for session_in_window in sessions_in_window:
+            max_hours_in_period_for_sessions_dict[session_in_window.id] = max(
+                hours_in_period,
+                max_hours_in_period_for_sessions_dict[session_in_window.id])
+    return {
+        session_id: RollingHoursRuleStatus(
+            is_broken=max_hours_in_period > hours_threshold,
+            max_worked_hours=max_hours_in_period)
+        for session_id, max_hours_in_period
+        in max_hours_in_period_for_sessions_dict.items()}
