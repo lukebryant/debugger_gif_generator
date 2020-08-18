@@ -108,12 +108,11 @@ base_image = draw_date_lines(first_start_datetime, end_datetime)
 def trace_lines(previous_i, frame, event, arg):
     lo = frame.f_locals
     if 'i' in lo:
-        global i
-        if i == lo['i']:
+        if previous_i == lo['i']:
             return
-        i = lo['i']
+        previous_i = lo['i']
         draw_next_image(lo)
-    return partial(trace_lines, i)
+    return partial(trace_lines, previous_i)
 
 
 def draw_next_image(lo: Dict):  # lo means locals
